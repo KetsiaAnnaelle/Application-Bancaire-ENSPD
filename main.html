@@ -302,16 +302,28 @@
         .user-profile-card {
             background: var(--gradient-dark);
             border-radius: 16px;
-            padding: 1.5rem;
+            padding: 0.5rem;
             color: white;
             margin-bottom: 2rem;
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .user-profile-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
         }
         
         .user-avatar {
             width: 70px;
             height: 70px;
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.15);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -320,6 +332,31 @@
             font-weight: 700;
             font-size: 1.5rem;
             margin-bottom: 1rem;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .user-info h4 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+            letter-spacing: 0.3px;
+        }
+        
+        .user-info p {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+        
+        .user-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .nav-menu {
@@ -700,31 +737,31 @@
             </button>
         </div>
 
-        <form class="login-form active" id="clientLoginForm">
+        <form class="login-form active" id="clientLoginForm" onsubmit="event.preventDefault(); loginAsClient();">
             <div class="form-group">
                 <label class="form-label"> <i class="fas fa-envelope"></i> E-mail du Client </label>
-                <input type="email" class="form-control" placeholder="didier.fouda@example.com" value="didier.fouda@example.com" required>
+                <input type="email" class="form-control" placeholder="didier.fouda@example.com" required>
             </div>
             <div class="form-group">
                 <label class="form-label"> <i class="fas fa-lock"></i> Mot de passe </label>
                 <input type="password" class="form-control" placeholder="••••••••" required>
             </div>
-            <button type="button" class="login-btn" onclick="loginAsClient()">
+            <button type="submit" class="login-btn">
                 <i class="fas fa-sign-in-alt me-2"></i>Se Connecter
             </button>
         </form>
         
-        <form class="login-form" id="adminLoginForm">
+        <form class="login-form" id="adminLoginForm" onsubmit="event.preventDefault(); loginAsAdmin();">
             <p class="access-message">Accès réservé au personnel autorisé.</p> 
             <div class="form-group">
                 <label class="form-label"> <i class="fas fa-envelope"></i> E-mail de l'Administrateur </label>
-                <input type="email" class="form-control" placeholder="admin@generalcameroun.cm" required>
+                <input type="email" class="form-control" placeholder="admin1@bankapp.com" required>
             </div>
             <div class="form-group">
                 <label class="form-label"> <i class="fas fa-lock"></i> Mot de passe </label>
                 <input type="password" class="form-control" placeholder="••••••••" required>
             </div>
-            <button type="button" class="login-btn" onclick="loginAsAdmin()">
+            <button type="submit" class="login-btn">
                 <i class="fas fa-sign-in-alt me-2"></i>Connexion
             </button>
         </form>
@@ -1170,11 +1207,58 @@
     let currentUser = null;
     let currentClient = clientsData[0]; // Client par défaut pour l'Admin pour la simulation
     let chartInstances = {};
+    let creditRequestData = { amount: null, duration: null, purpose: null };
     
     // Simulation des demandes de crédit reçues (liste initialement vide)
     let pendingCreditRequests = [
         // Aucune demande par défaut pour Didier Fouda pour l'exemple
     ];
+
+    // ========== UI UPDATE FUNCTIONS ==========
+    function updateClientUI() {
+        if (!currentUser) return;
+        
+        document.getElementById('clientSidebarName').textContent = `${currentUser.firstName} ${currentUser.lastName}`;
+        document.getElementById('clientSidebarEmail').textContent = currentUser.email;
+        document.getElementById('clientSidebarAvatar').textContent = currentUser.avatar;
+        document.getElementById('clientDashboardMainBalance').textContent = formatFCFA(currentUser.balance || 0);
+    }
+
+    function updateAdminUI() {
+        if (!currentUser) return;
+        
+        const adminSidebar = document.getElementById('adminSidebar');
+        const userCard = adminSidebar.querySelector('.user-profile-card');
+        if (userCard) {
+            const nameEl = userCard.querySelector('h4');
+            const emailEl = userCard.querySelector('p');
+            if (nameEl) nameEl.textContent = currentUser.name || 'Administrateur GC';
+            if (emailEl) emailEl.textContent = currentUser.email || 'admin@generalcameroun.cm';
+        }
+    }
+
+    async function loadCurrentUser() {
+        try {
+            const response = await fetch('/api/auth/current-user');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.userType === 'client') {
+                    currentUser = data.user;
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('clientInterface').classList.add('active');
+                    updateClientUI();
+                } else {
+                    currentUser = { ...data.user, type: 'admin' };
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('adminInterface').classList.add('active');
+                    updateAdminUI();
+                    loadClientsList();
+                }
+            }
+        } catch (error) {
+            console.error('Error loading current user:', error);
+        }
+    }
 
     // ========== UTILITIES ==========
     function formatFCFA(amount) {
@@ -1207,42 +1291,107 @@
         }
     }
 
-    function loginAsClient() {
-        // Simulation: Se connecter en tant que premier client (Didier Fouda)
-        currentUser = clientsData[0];
-        document.getElementById('loginPage').style.display = 'none';
-        document.getElementById('clientInterface').classList.add('active');
+    async function loginAsClient() {
+        const form = document.getElementById('clientLoginForm');
+        const emailInput = form.querySelector('input[type="email"]');
+        const passwordInput = form.querySelector('input[type="password"]');
         
-        document.getElementById('clientSidebarName').textContent = `${currentUser.firstName} ${currentUser.lastName}`;
-        document.getElementById('clientSidebarEmail').textContent = currentUser.email;
-        document.getElementById('clientSidebarAvatar').textContent = currentUser.avatar;
-        
-        // Mise à jour de la balance principale du dashboard client
-        document.getElementById('clientDashboardMainBalance').textContent = formatFCFA(currentUser.currentBalance);
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
 
-        showClientPage('clientDashboard');
-        setTimeout(() => { 
-            initClientChart(); 
-            initCategoryAveragesChart();
-        }, 300); 
+        if (!email || !password) {
+            alert('Veuillez remplir tous les champs');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auth/login/client', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || 'Erreur de connexion');
+                return;
+            }
+
+            currentUser = data.user;
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('clientInterface').classList.add('active');
+            
+            updateClientUI();
+            showClientPage('clientDashboard');
+            setTimeout(() => { 
+                initClientChart(); 
+                initCategoryAveragesChart();
+            }, 300);
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('Erreur de connexion. Veuillez réessayer.');
+        }
     }
 
-    function loginAsAdmin() {
-        // Simulation: Se connecter en tant qu'admin
-        currentUser = { type: 'admin', name: 'Administrateur GC', email: 'admin@generalcameroun.cm', avatar: 'AD' };
+    async function loginAsAdmin() {
+        const form = document.getElementById('adminLoginForm');
+        const emailInput = form.querySelector('input[type="email"]');
+        const passwordInput = form.querySelector('input[type="password"]');
         
-        document.getElementById('loginPage').style.display = 'none';
-        document.getElementById('adminInterface').classList.add('active');
-        
-        showPage('clientsList');
-        loadClientsList();
-        loadPendingRequests(); // Charger les demandes en attente
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+
+        if (!email || !password) {
+            alert('Veuillez remplir tous les champs');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auth/login/admin', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || 'Erreur de connexion');
+                return;
+            }
+
+            currentUser = { ...data.user, type: 'admin' };
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('adminInterface').classList.add('active');
+            
+            updateAdminUI();
+            showPage('clientsList');
+            loadClientsList();
+            loadPendingRequests();
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('Erreur de connexion. Veuillez réessayer.');
+        }
     }
     
-    function logout() {
+    async function logout() {
         if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+            
             currentUser = null;
-            currentClient = clientsData[0]; // Reset to default for simulation
+            currentClient = clientsData[0];
             document.getElementById('adminInterface').classList.remove('active');
             document.getElementById('clientInterface').classList.remove('active');
             document.getElementById('loginPage').style.display = 'flex';
@@ -1483,8 +1632,8 @@
         }
     }
     
-    // Soumission de la demande de crédit (Nouveau Point Client)
-    function submitCreditRequest(event) {
+    // Soumission de la demande de crédit
+    async function submitCreditRequest(event) {
         event.preventDefault();
         
         const amount = document.getElementById('loanAmount').value;
@@ -1496,24 +1645,53 @@
             return;
         }
 
-        const newRequestId = pendingCreditRequests.length + 101;
-        
-        // Simuler l'envoi au back-end et l'ajout à la liste d'attente Admin
-        pendingCreditRequests.push({
-            id: newRequestId,
-            clientId: currentUser.id,
-            clientName: `${currentUser.firstName} ${currentUser.lastName}`,
-            date: new Date().toLocaleDateString('fr-FR'),
-            amount: parseInt(amount),
-            duration: parseInt(duration),
-            purpose: purpose
-        });
+        try {
+            const response = await fetch('/api/credit-request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    amount: parseFloat(amount),
+                    duration: parseInt(duration),
+                    purpose: purpose
+                })
+            });
 
-        alert(`✅ Demande soumise !\n\nVotre demande de ${formatFCFA(parseInt(amount))} a été transmise à notre équipe d'analyse crédit. Un administrateur l'examinera bientôt.`);
-        
-        // Vider le formulaire et rediriger vers le dashboard
-        document.getElementById('creditRequestForm').reset();
-        showClientPage('clientDashboard');
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || 'Erreur lors de la soumission de la demande');
+                return;
+            }
+
+            // Store for AI chat context
+            creditRequestData = {
+                amount: parseFloat(amount),
+                duration: parseInt(duration),
+                purpose: purpose
+            };
+
+            // Add to pending requests list (for admin view)
+            pendingCreditRequests.push({
+                id: pendingCreditRequests.length + 101,
+                clientId: currentUser.id,
+                clientName: `${currentUser.firstName} ${currentUser.lastName}`,
+                date: new Date().toLocaleDateString('fr-FR'),
+                amount: parseFloat(amount),
+                duration: parseInt(duration),
+                purpose: purpose
+            });
+
+            alert(`✅ Demande soumise !\n\nVotre demande de ${formatFCFA(parseFloat(amount))} a été transmise à notre équipe d'analyse crédit. Un administrateur l'examinera bientôt.`);
+            
+            // Vider le formulaire et rediriger vers le dashboard
+            document.getElementById('creditRequestForm').reset();
+            showClientPage('clientDashboard');
+        } catch (error) {
+            console.error('Error submitting credit request:', error);
+            alert('Erreur lors de la soumission. Veuillez réessayer.');
+        }
     }
 
     async function initClientChart() {
@@ -1748,7 +1926,7 @@
         }
     }
     
-    function sendChatbotMessage() {
+    async function sendChatbotMessage() {
         const input = document.getElementById('chatbotInput');
         const messages = document.getElementById('chatMessages');
         const userMessage = input.value.trim();
@@ -1759,42 +1937,62 @@
         userDiv.className = 'message-user';
         userDiv.innerHTML = `<small><strong>Vous:</strong> ${userMessage}</small>`;
         messages.appendChild(userDiv);
-        
-        simulateBotResponse(userMessage, messages);
 
         input.value = '';
         messages.scrollTop = messages.scrollHeight;
-    }
 
-    function simulateBotResponse(message, messages) {
-        const lowerMessage = message.toLowerCase();
-        let response = '';
-        
-        if (lowerMessage.includes('crédit') || lowerMessage.includes('prêt')) {
-            response = "Pour une demande de crédit, veuillez utiliser le formulaire dans la section 'Demande de Crédit' de la sidebar. Nous vous recontacterons après l'analyse de votre dossier.";
-        } else if (lowerMessage.includes('solde') || lowerMessage.includes('compte')) {
-            response = `Votre solde actuel est de ${formatFCFA(currentUser.currentBalance)}. Souhaitez-vous voir le détail de vos dernières transactions ?`;
-        } else if (lowerMessage.includes('score')) {
-            response = `Votre score crédit est excellent : ${currentUser.creditScore}/10. Pour le maintenir, payez vos factures à temps et évitez les découverts.`;
-        } else if (lowerMessage.includes('horaire')) {
-            response = "Nos agences General Cameroun sont ouvertes du lundi au vendredi de 8h00 à 15h30. Les services en ligne sont disponibles 24h/24.";
-        } else {
-            response = "Je suis là pour vous aider. Veuillez me poser une question spécifique sur vos comptes, cartes ou services General Cameroun.";
-        } 
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'message-bot';
+        loadingDiv.innerHTML = `<small><i class="fas fa-spinner fa-spin"></i> Analyse en cours...</small>`;
+        messages.appendChild(loadingDiv);
+        messages.scrollTop = messages.scrollHeight;
 
-        setTimeout(() => {
+        try {
+            const response = await fetch('/api/chat/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: userMessage,
+                    creditAmount: creditRequestData.amount,
+                    creditDuration: creditRequestData.duration
+                })
+            });
+
+            const data = await response.json();
+
+            // Remove loading indicator
+            loadingDiv.remove();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Erreur de communication');
+            }
+
             const botMessage = document.createElement('div');
             botMessage.className = 'message-bot';
-            botMessage.innerHTML = `<small><strong>Assistant GC:</strong> ${response}</small>`;
+            botMessage.innerHTML = `<small><strong>Assistant GC:</strong> ${data.response}</small>`;
             messages.appendChild(botMessage);
             messages.scrollTop = messages.scrollHeight;
-        }, 800);
+        } catch (error) {
+            console.error('Chat error:', error);
+            loadingDiv.remove();
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'message-bot';
+            errorMessage.innerHTML = `<small><strong>Assistant GC:</strong> Désolé, une erreur s'est produite. Veuillez réessayer.</small>`;
+            messages.appendChild(errorMessage);
+            messages.scrollTop = messages.scrollHeight;
+        }
     }
     
 
     // ========== INITIALISATION ==========
     document.addEventListener('DOMContentLoaded', function() {
         showLoginForm('client');
+        
+        // Check if user is already logged in
+        loadCurrentUser();
         
         const chatbotInput = document.getElementById('chatbotInput');
         if (chatbotInput) {
@@ -1806,7 +2004,7 @@
         }
         
         // Sélectionner le premier client par défaut pour l'admin au chargement
-        currentClient = clientsData[0]; 
+        currentClient = clientsData[0];
     });
 </script>
 

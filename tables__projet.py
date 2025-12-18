@@ -14,11 +14,13 @@ def hash_mdp(mdp):
 class Administrateur(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     nom: str = Field(max_length=100)
+    email: str
     mot_de_passe: str  
     role: str 
 
 class Connexion_client(SQLModel,table=True):
     id:Optional[int] = Field(default=None, primary_key=True)
+    client_id: Optional[int] = Field(default=None, foreign_key="client.client_id")
     email: str
     mot_de_passe: str
      
@@ -57,6 +59,11 @@ connect_args = {"check_same_thread": False}
 engine = create_engine(sqlite_url, connect_args=connect_args, echo=True)
 
 def create_db_and_table():
+    SQLModel.metadata.create_all(engine)
+
+def reset_db():
+    """Drop and recreate all tables (for development/seeding)."""
+    SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
 
 
@@ -112,7 +119,8 @@ def add_transaction( id_client:int, nom_transaction:str, date_transaction:date, 
         session.commit()
     
 def main():
-    create_db_and_table()
+    # For development: reset the schema to match the current models
+    reset_db()
   
 
 
