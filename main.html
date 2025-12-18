@@ -1039,6 +1039,16 @@
                 </div>
                 <small class="text-muted mt-3 d-block">Source: Analyse des transactions de votre compte courant.</small>
             </section>
+            
+            <section id="category-averages" class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-chart-pie"></i> Moyennes par Catégorie</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="categoryAveragesChart"></canvas>
+                </div>
+                <small class="text-muted mt-3 d-block">Moyenne des montants par catégorie de transaction.</small>
+            </section>
         </div>
         
         <div class="page" id="clientProfileView">
@@ -1211,7 +1221,10 @@
         document.getElementById('clientDashboardMainBalance').textContent = formatFCFA(currentUser.currentBalance);
 
         showClientPage('clientDashboard');
-        setTimeout(() => { initClientChart(); }, 300); 
+        setTimeout(() => { 
+            initClientChart(); 
+            initCategoryAveragesChart();
+        }, 300); 
     }
 
     function loginAsAdmin() {
@@ -1463,7 +1476,10 @@
         document.querySelector(`#clientSidebar a[onclick="showClientPage('${pageId}')"]`).classList.add('active');
         
         if (pageId === 'clientDashboard') {
-            setTimeout(() => { initClientChart(); }, 300);
+            setTimeout(() => { 
+                initClientChart(); 
+                initCategoryAveragesChart();
+            }, 300);
         }
     }
     
@@ -1500,50 +1516,171 @@
         showClientPage('clientDashboard');
     }
 
-    function initClientChart() {
+    async function initClientChart() {
         const ctx = document.getElementById('clientComparisonChart');
         if (!ctx) return;
         if (chartInstances.clientComparisonChart) {
             chartInstances.clientComparisonChart.destroy();
         }
 
-        const dataOctobre = [350000, 280000, 150000, 100000, 50000, 120000, 50000].map(val => val / 1000); // En milliers
-        const dataNovembre = [365000, 270000, 180000, 95000, 60000, 125000, 45000].map(val => val / 1000); // En milliers
-        
-        chartInstances.clientComparisonChart = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: ['Logement', 'Alimentation', 'Transport', 'Loisirs', 'Santé', 'Éducation', 'Autres'],
-                datasets: [{
-                    label: 'Octobre 2024 (K FCFA)',
-                    data: dataOctobre,
-                    backgroundColor: 'var(--accent-dark)',
-                    borderColor: 'var(--secondary)',
-                    borderWidth: 1
+        // Fetch monthly data from backend
+        try {
+            const clientId = currentUser ? currentUser.id : null;
+            const url = `/api/transactions/monthly${clientId ? `?client_id=${clientId}` : ''}`;
+            const response = await fetch(url);
+            const result = await response.json();
+            
+            if (!result.data || result.data.length === 0) {
+                // Fallback to empty chart if no data
+                chartInstances.clientComparisonChart = new Chart(ctx.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { 
+                            legend: { position: 'top' },
+                            title: { display: true, text: 'Aucune donnée disponible' }
+                        }
+                    }
+                });
+                return;
+            }
+
+            const monthlyData = result.data;
+            const labels = monthlyData.map(d => d.label);
+            const incomeData = monthlyData.map(d => Math.abs(d.income) / 1000); // Convert to thousands
+            const expenseData = monthlyData.map(d => d.expense / 1000); // Convert to thousands
+            
+            chartInstances.clientComparisonChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Revenus (K FCFA)',
+                        data: incomeData,
+                        backgroundColor: 'rgba(0, 200, 83, 0.6)',
+                        borderColor: 'rgba(0, 200, 83, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Dépenses (K FCFA)',
+                        data: expenseData,
+                        backgroundColor: 'rgba(230, 0, 40, 0.6)',
+                        borderColor: 'rgba(230, 0, 40, 1)',
+                        borderWidth: 1
+                    }]
                 },
-                {
-                    label: 'Novembre 2024 (K FCFA)',
-                    data: dataNovembre,
-                    backgroundColor: 'var(--primary)',
-                    borderColor: 'var(--primary-dark)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { 
-                    legend: { position: 'top', labels: { usePointStyle: true } },
-                    tooltip: { callbacks: { label: (context) => context.dataset.label + ': ' + context.parsed.y + 'K FCFA' } }
-                },
-                scales: {
-                    y: { 
-                        beginAtZero: true, 
-                        title: { display: true, text: 'Dépenses (Kilo FCFA)' }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { position: 'top', labels: { usePointStyle: true } },
+                        tooltip: { 
+                            callbacks: { 
+                                label: (context) => {
+                                    const value = Math.abs(context.parsed.y);
+                                    return context.dataset.label + ': ' + value.toFixed(1) + 'K FCFA';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            title: { display: true, text: 'Montant (Kilo FCFA)' }
+                        }
                     }
                 }
+            });
+        } catch (error) {
+            console.error('Error fetching monthly data:', error);
+            // Show error message on chart
+            ctx.getContext('2d').fillText('Erreur de chargement des données', 10, 50);
+        }
+    }
+
+    async function initCategoryAveragesChart() {
+        const ctx = document.getElementById('categoryAveragesChart');
+        if (!ctx) return;
+        if (chartInstances.categoryAveragesChart) {
+            chartInstances.categoryAveragesChart.destroy();
+        }
+
+        // Fetch category averages from backend
+        try {
+            const clientId = currentUser ? currentUser.id : null;
+            const url = `/api/transactions/category-averages${clientId ? `?client_id=${clientId}` : ''}`;
+            const response = await fetch(url);
+            const result = await response.json();
+            
+            if (!result.data || result.data.length === 0) {
+                chartInstances.categoryAveragesChart = new Chart(ctx.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { 
+                            title: { display: true, text: 'Aucune donnée disponible' }
+                        }
+                    }
+                });
+                return;
             }
-        });
+
+            const categoryData = result.data;
+            const labels = categoryData.map(d => d.category);
+            const averages = categoryData.map(d => Math.abs(d.average) / 1000); // Convert to thousands
+            
+            // Color palette
+            const colors = [
+                'rgba(230, 0, 40, 0.6)',   // Red
+                'rgba(255, 152, 0, 0.6)',  // Orange
+                'rgba(0, 200, 83, 0.6)',   // Green
+                'rgba(0, 0, 0, 0.6)',      // Black
+                'rgba(13, 71, 161, 0.6)',  // Blue
+                'rgba(156, 39, 176, 0.6)', // Purple
+                'rgba(244, 67, 54, 0.6)',  // Red variant
+            ];
+            
+            chartInstances.categoryAveragesChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Moyenne (K FCFA)',
+                        data: averages,
+                        backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+                        borderColor: labels.map((_, i) => colors[i % colors.length].replace('0.6', '1')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: { 
+                            callbacks: { 
+                                label: (context) => {
+                                    const value = Math.abs(context.parsed.y);
+                                    return 'Moyenne: ' + value.toFixed(1) + 'K FCFA';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            title: { display: true, text: 'Montant Moyen (Kilo FCFA)' }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching category averages:', error);
+        }
     }
 
     function initAdminChart() {

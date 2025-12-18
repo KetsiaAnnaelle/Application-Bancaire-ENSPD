@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional, Tuple
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from sqlalchemy import case, func
 from sqlmodel import Session, select
 
@@ -139,6 +139,10 @@ def create_app() -> Flask:
     @app.get("/health")
     def health():
         return jsonify({"status": "ok"})
+
+    @app.get("/")
+    def index():
+        return send_from_directory(".", "main.html")
 
     return app
 
