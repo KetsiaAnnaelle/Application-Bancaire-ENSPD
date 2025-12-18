@@ -1165,47 +1165,10 @@
 
 <script>
     // ========== DONNÉES DE SIMULATION (Base de Données Similée mise à jour avec la DB fournie) ==========
-    const clientsData = [
-        { 
-            id: 1, 
-            firstName: "Didier", lastName: "Fouda", email: "didier.fouda@example.com", phone: "650112233", 
-            birthdate: "1993-10-08", profession: "Entrepreneur", address: "Yaoundé, Essos", 
-            accountNumber: "ACC00441122", iban: "CM79 0050 1000 1122 3344 5566 778", rib: "10005 00003 11223344556 89", 
-            cardNumber: "1122", cardExpiry: "03/29", currentBalance: 10005000, // DB data 
-            
-            // Simulation/AI data (nécessaire pour la fonctionnalité d'analyse de crédit)
-            monthlyIncome: 3000000, 
-            creditScore: 9.2, endebtmentRatio: 0.10, 
-            status: "premium", avatar: "DF", statusText: "Excellent" 
-        },
-        { 
-            id: 2, 
-            firstName: "Clarisse", lastName: "Mbia", email: "clarisse.mbia@example.com", phone: "677987654", 
-            birthdate: "1985-02-25", profession: "Comptable", address: "Douala, Bonapriso", 
-            accountNumber: "ACC00987654", iban: "CM79 0040 2000 9876 5432 1098 765", rib: "20004 00002 98765432109 76", 
-            cardNumber: "3478", cardExpiry: "11/27", currentBalance: 20004000, // DB data 
-            
-            // Simulation/AI data
-            monthlyIncome: 1200000,
-            creditScore: 7.0, endebtmentRatio: 0.45, 
-            status: "warning", avatar: "CM", statusText: "Conditionnel" 
-        },
-        { 
-            id: 3, 
-            firstName: "Paul", lastName: "Ngono", email: "paul.ngono@example.com", phone: "694123456", 
-            birthdate: "1990-04-12", profession: "Ingénieur logiciel", address: "Yaoundé, Bastos", 
-            accountNumber: "ACC00123456", iban: "CM79 0020 3000 1234 5678 9012 345", rib: "30001 00001 12345678901 45", 
-            cardNumber: "8910", cardExpiry: "07/28", currentBalance: 30001000, // DB data 
-            
-            // Simulation/AI data
-            monthlyIncome: 650000,
-            creditScore: 5.5, endebtmentRatio: 0.60, 
-            status: "danger", avatar: "PN", statusText: "Risque élevé" 
-        }
-    ];
+    let clientsData = [];
 
     let currentUser = null;
-    let currentClient = clientsData[0]; // Client par défaut pour l'Admin pour la simulation
+    let currentClient = null; // Client sélectionné côté admin
     let chartInstances = {};
     let creditRequestData = { amount: null, duration: null, purpose: null };
     
@@ -1252,7 +1215,7 @@
                     document.getElementById('loginPage').style.display = 'none';
                     document.getElementById('adminInterface').classList.add('active');
                     updateAdminUI();
-                    loadClientsList();
+                    fetchAdminClients();
                 }
             }
         } catch (error) {
@@ -1371,7 +1334,7 @@
             
             updateAdminUI();
             showPage('clientsList');
-            loadClientsList();
+            fetchAdminClients();
             loadPendingRequests();
         } catch (error) {
             console.error('Login error:', error);
@@ -1391,7 +1354,7 @@
             }
             
             currentUser = null;
-            currentClient = clientsData[0];
+            currentClient = null;
             document.getElementById('adminInterface').classList.remove('active');
             document.getElementById('clientInterface').classList.remove('active');
             document.getElementById('loginPage').style.display = 'flex';
@@ -1403,6 +1366,26 @@
     }
 
     // ========== FONCTIONS ADMIN ==========
+    async function fetchAdminClients() {
+        try {
+            const response = await fetch('/api/admin/clients');
+            const data = await response.json();
+
+            if (!response.ok) {
+                console.error('Erreur chargement clients admin:', data.error || data);
+                return;
+            }
+
+            clientsData = data.clients || [];
+            if (!currentClient && clientsData.length > 0) {
+                currentClient = clientsData[0];
+            }
+            loadClientsList(clientsData);
+        } catch (error) {
+            console.error('Erreur réseau chargement clients admin:', error);
+        }
+    }
+
     function showPage(pageId) {
         document.querySelectorAll('#adminInterface .page').forEach(page => page.classList.remove('active'));
         document.getElementById(pageId).classList.add('active');
@@ -1476,7 +1459,7 @@
 
     function searchClients(query) {
         if (!query.trim()) {
-            loadClientsList();
+            loadClientsList(clientsData);
             return;
         }
         const filteredClients = clientsData.filter(client => 
@@ -1861,50 +1844,94 @@
         }
     }
 
-    function initAdminChart() {
+    async function initAdminChart() {
         if (chartInstances.adminClientBalanceChart) chartInstances.adminClientBalanceChart.destroy();
         if (chartInstances.adminClientExpenseChart) chartInstances.adminClientExpenseChart.destroy();
-        
-        // Utiliser la balance réelle du client pour le point de départ
-        const initialBalance = currentClient.currentBalance / 1000000;
-        
+
+        if (!currentClient) return;
+
+        const clientId = currentClient.id;
+
+        // Solde des comptes (évolution mensuelle approximative)
         const balanceCtx = document.getElementById('adminClientBalanceChart').getContext('2d');
-        chartInstances.adminClientBalanceChart = new Chart(balanceCtx, {
-            type: 'line',
-            data: {
-                labels: ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil'],
-                datasets: [{
-                    label: 'Solde Compte Principal',
-                    data: [initialBalance - 1, initialBalance - 0.5, initialBalance - 0.7, initialBalance, initialBalance + 0.5, initialBalance + 0.2, initialBalance + 0.8].map(val => Math.max(0, val)), // En millions
-                    borderColor: 'var(--primary)',
-                    backgroundColor: 'var(--primary-light)',
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: true, position: 'top' } },
-                scales: { y: { title: { display: true, text: 'Solde (Millions FCFA)' } } }
+        try {
+            const url = `/api/transactions/monthly?client_id=${clientId}`;
+            const response = await fetch(url);
+            const result = await response.json();
+
+            const monthlyData = (result.data || []).sort((a, b) => a.year - b.year || a.month - b.month);
+            const labels = [];
+            const balances = [];
+
+            let balance = currentClient.currentBalance || 0;
+            // Recalculer le solde en remontant dans le temps (approximation)
+            // On part du solde initial et on applique les flux dans l'ordre chronologique
+            balance = currentClient.currentBalance || 0;
+            let cumulative = balance;
+            // Reviens en arrière en soustrayant les flux (ordre inverse)
+            for (let i = monthlyData.length - 1; i >= 0; i--) {
+                cumulative -= monthlyData[i].net || 0;
             }
-        });
-        
+            balance = cumulative;
+
+            monthlyData.forEach((m) => {
+                balance += m.net || 0;
+                labels.push(m.label);
+                balances.push(Math.max(0, balance / 1_000_000)); // en millions
+            });
+
+            chartInstances.adminClientBalanceChart = new Chart(balanceCtx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Solde Compte Principal',
+                        data: balances,
+                        borderColor: 'var(--primary)',
+                        backgroundColor: 'var(--primary-light)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: true, position: 'top' } },
+                    scales: { y: { title: { display: true, text: 'Solde (Millions FCFA)' } } }
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching admin balance data:', error);
+        }
+
+        // Distribution des dépenses par catégorie (annuelle)
         const expenseCtx = document.getElementById('adminClientExpenseChart').getContext('2d');
-        chartInstances.adminClientExpenseChart = new Chart(expenseCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Logement', 'Alimentation', 'Transport', 'Loisirs', 'Épargne'],
-                datasets: [{
-                    data: [35, 25, 15, 10, 15], // Pourcentages
-                    backgroundColor: ['#E60028', '#FF9800', '#00C853', '#000000', '#0D47A1'], 
-                    hoverOffset: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { position: 'bottom' } }
-            }
-        });
+        try {
+            const url = `/api/transactions/category-averages?client_id=${clientId}`;
+            const response = await fetch(url);
+            const result = await response.json();
+
+            const categoryData = result.data || [];
+            const labels = categoryData.map(d => d.category);
+            const values = categoryData.map(d => Math.abs(d.average));
+
+            chartInstances.adminClientExpenseChart = new Chart(expenseCtx, {
+                type: 'doughnut',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#E60028', '#FF9800', '#00C853', '#000000', '#0D47A1', '#8E24AA', '#26C6DA'],
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching admin expense data:', error);
+        }
     }
 
     function toggleChatbot() {
@@ -2003,8 +2030,8 @@
             });
         }
         
-        // Sélectionner le premier client par défaut pour l'admin au chargement
-        currentClient = clientsData[0];
+        // Aucun client sélectionné par défaut côté admin avant chargement depuis le backend
+        currentClient = null;
     });
 </script>
 

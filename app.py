@@ -9,8 +9,13 @@ from sqlalchemy import case, func
 from sqlmodel import Session, select
 
 from tables__projet import (
-    Transaction, Client, Administrateur, Connexion_client,
-    create_db_and_table, engine, hash_mdp
+    Transaction,
+    Client,
+    Administrateur,
+    Connexion_client,
+    create_db_and_table,
+    engine,
+    hash_mdp,
 )
 
 
@@ -386,6 +391,100 @@ def create_app() -> Flask:
                 "transactionCount": transaction_count
             }
         })
+
+    @app.get("/api/admin/clients")
+    def admin_list_clients():
+        """Return enriched client list for admin dashboard (with simple credit metrics)."""
+        # Only allow admins
+        if session.get("user_type") != "admin":
+            return jsonify({"error": "Admin authentication required"}), 403
+
+        with Session(engine) as db_session:
+            clients = db_session.exec(select(Client)).all()
+
+            result = []
+
+            for client in clients:
+                # Aggregate transactions for this client
+                tx_filter = Transaction.id_client == client.client_id
+
+                income_stmt = select(func.sum(Transaction.montant)).where(
+                    tx_filter, Transaction.montant > 0
+                )
+                expense_stmt = select(func.sum(Transaction.montant)).where(
+                    tx_filter, Transaction.montant < 0
+                )
+                month_count_stmt = select(
+                    func.count(
+                        func.distinct(
+                            func.strftime("%Y-%m", Transaction.date_transaction)
+                        )
+                    )
+                ).where(tx_filter)
+
+                # SQLModel's exec() on a scalar select returns the scalar directly in first()
+                income_val = db_session.exec(income_stmt).first()
+                expense_val = db_session.exec(expense_stmt).first()
+                month_count_val = db_session.exec(month_count_stmt).first()
+
+                income_total = float(income_val or 0.0)
+                expenses_signed = float(expense_val or 0.0)
+                month_count = int(month_count_val or 1)
+
+                # Simple monthly aggregates
+                avg_income = float(income_total / month_count) if income_total > 0 else 0.0
+                avg_expense = float(abs(expenses_signed) / month_count) if expenses_signed < 0 else 0.0
+
+                # Simple debt ratio heuristic
+                denom = avg_income + (float(client.solde_initial) / 12.0) + 1.0
+                debt_ratio = avg_expense / denom
+                debt_ratio = max(0.0, min(debt_ratio, 1.0))
+
+                # Simple credit score based on balance and debt ratio
+                balance = float(client.solde_initial)
+                if balance > 1_000_000 and debt_ratio <= 0.30:
+                    credit_score = 9.0
+                elif balance > 500_000 and debt_ratio <= 0.50:
+                    credit_score = 7.0
+                else:
+                    credit_score = 5.5
+
+                if credit_score >= 8.0 and debt_ratio <= 0.30:
+                    status = "premium"
+                    status_text = "Excellent"
+                elif credit_score >= 6.5 and debt_ratio <= 0.50:
+                    status = "warning"
+                    status_text = "Conditionnel"
+                else:
+                    status = "danger"
+                    status_text = "Risque élevé"
+
+                result.append(
+                    {
+                        "id": client.client_id,
+                        "firstName": client.prenom,
+                        "lastName": client.nom,
+                        "email": client.email,
+                        "phone": client.telephone,
+                        "birthdate": client.date_naissance.isoformat(),
+                        "profession": client.profession,
+                        "address": client.adresse,
+                        "accountNumber": client.numero_compte,
+                        "iban": client.IBAN,
+                        "rib": client.RIB,
+                        "cardNumber": client.numero_carte[-4:],
+                        "cardExpiry": client.date_expiration,
+                        "currentBalance": balance,
+                        "monthlyIncome": avg_income,
+                        "creditScore": round(credit_score, 1),
+                        "endebtmentRatio": round(debt_ratio, 2),
+                        "status": status,
+                        "statusText": status_text,
+                        "avatar": f"{client.prenom[0]}{client.nom[0]}".upper(),
+                    }
+                )
+
+        return jsonify({"clients": result})
 
     @app.get("/health")
     def health():
