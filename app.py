@@ -515,24 +515,50 @@ def create_app() -> Flask:
                 avg_income = float(income_total / month_count) if income_total > 0 else 0.0
                 avg_expense = float(abs(expenses_signed) / month_count) if expenses_signed < 0 else 0.0
 
-                # Simple debt ratio heuristic
+                # Robust debt ratio heuristic (0 <= debt_ratio <= 1)
                 denom = avg_income + (float(client.solde_initial) / 12.0) + 1.0
                 debt_ratio = avg_expense / denom
                 debt_ratio = max(0.0, min(debt_ratio, 1.0))
 
-                # Simple credit score based on balance and debt ratio
+                # Continuous credit score based on balance level and debt ratio
                 balance = float(client.solde_initial)
-                if balance > 1_000_000 and debt_ratio <= 0.30:
-                    credit_score = 9.0
-                elif balance > 500_000 and debt_ratio <= 0.50:
-                    credit_score = 7.0
-                else:
-                    credit_score = 5.5
 
-                if credit_score >= 8.0 and debt_ratio <= 0.30:
+                # Balance contribution: from 0 to +4 points
+                if balance <= 0:
+                    balance_score = 0.0
+                elif balance < 250_000:
+                    balance_score = 1.0
+                elif balance < 500_000:
+                    balance_score = 2.0
+                elif balance < 1_000_000:
+                    balance_score = 3.0
+                else:
+                    balance_score = 4.0
+
+                # Debt ratio contribution: from -3 (très endetté) to +1 (peu endetté)
+                if debt_ratio > 0.8:
+                    debt_score = -3.0
+                elif debt_ratio > 0.6:
+                    debt_score = -2.0
+                elif debt_ratio > 0.45:
+                    debt_score = -1.0
+                elif debt_ratio > 0.30:
+                    debt_score = 0.0
+                else:
+                    debt_score = 1.0
+
+                # Base score + contributions, borné entre 3 et 9
+                raw_score = 5.0 + balance_score + debt_score
+                credit_score = max(3.0, min(raw_score, 9.0))
+
+                # Mapping statut plus intuitif :
+                #  - score >= 8.0  => premium (même si le taux d'endettement est un peu élevé)
+                #  - 6.5 <= score < 8.0 => conditionnel
+                #  - sinon => risque élevé
+                if credit_score >= 8.0:
                     status = "premium"
                     status_text = "Excellent"
-                elif credit_score >= 6.5 and debt_ratio <= 0.50:
+                elif credit_score >= 6.5:
                     status = "warning"
                     status_text = "Conditionnel"
                 else:

@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
         /* --- Charte Graphique SG Cameroun --- */
@@ -144,7 +145,7 @@
         /* ===== PAGE DE CONNEXION (Point 1) ===== */
         .login-container {
             display: flex;
-            min-height: 100vh;
+            height: auto;
             align-items: center;
             justify-content: center;
             background: var(--gradient-dark);
@@ -308,6 +309,7 @@
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
             position: relative;
             overflow: hidden;
+            width: auto;
         }
         
         .user-profile-card::before {
@@ -719,7 +721,7 @@
 <body>
 
 <div class="login-container" id="loginPage">
-    <div class="login-box">
+    <div class="login-box my-2">
         <div class="login-logo">
             <div class="login-logo-icon">
                 <i class="fas fa-shield-alt"></i>
@@ -1176,6 +1178,9 @@
     let pendingCreditRequests = [];
     let currentRequestId = null;
 
+    // Historique du chatbot (persisté dans localStorage)
+    let chatHistory = [];
+
     // ========== UI UPDATE FUNCTIONS ==========
     function updateClientUI() {
         if (!currentUser) return;
@@ -1208,6 +1213,7 @@
                     currentUser = data.user;
                     document.getElementById('loginPage').style.display = 'none';
                     document.getElementById('clientInterface').classList.add('active');
+                    document.getElementById('chatbotContainer').style.display = 'block';
                     updateClientUI();
                 } else {
                     currentUser = { ...data.user, type: 'admin' };
@@ -1223,6 +1229,92 @@
     }
 
     // ========== UTILITIES ==========
+    // Centralized SweetAlert helpers
+    function showErrorAlert(title, text) {
+        Swal.fire({
+            icon: 'error',
+            title: title || 'Erreur',
+            text: text || '',
+            confirmButtonText: 'OK'
+        });
+    }
+
+    function showSuccessAlert(title, text) {
+        Swal.fire({
+            icon: 'success',
+            title: title || 'Succès',
+            text: text || '',
+            timer: 2500,
+            showConfirmButton: false
+        });
+    }
+
+    function showInfoAlert(title, text) {
+        Swal.fire({
+            icon: 'info',
+            title: title || 'Information',
+            text: text || '',
+            confirmButtonText: 'OK'
+        });
+    }
+
+    async function showConfirmAlert(title, text, confirmButtonText = 'Oui', cancelButtonText = 'Annuler') {
+        const result = await Swal.fire({
+            icon: 'question',
+            title: title || 'Confirmation',
+            text: text || '',
+            showCancelButton: true,
+            confirmButtonText,
+            cancelButtonText
+        });
+        return result.isConfirmed;
+    }
+
+    // ====== Gestion de l'historique du chatbot (localStorage) ======
+    function saveChatHistory() {
+        try {
+            localStorage.setItem('finailyChatHistory', JSON.stringify(chatHistory));
+        } catch (e) {
+            console.error('Erreur sauvegarde historique chatbot:', e);
+        }
+    }
+
+    function renderChatHistory() {
+        const messages = document.getElementById('chatMessages');
+        if (!messages) return;
+        messages.innerHTML = '';
+
+        // Si aucun historique, ajouter le message de bienvenue par défaut
+        if (!chatHistory || chatHistory.length === 0) {
+            chatHistory = [{
+                type: 'bot',
+                text: "Bonjour ! Je suis l'Assistant Virtuel de General Cameroun. Comment puis-je vous aider aujourd'hui ?"
+            }];
+            saveChatHistory();
+        }
+
+        chatHistory.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = msg.type === 'user' ? 'message-user' : 'message-bot';
+            const label = msg.type === 'user' ? 'Vous' : 'Assistant GC';
+            div.innerHTML = `<small><strong>${label}:</strong> ${msg.text}</small>`;
+            messages.appendChild(div);
+        });
+
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    function loadChatHistory() {
+        try {
+            const raw = localStorage.getItem('finailyChatHistory');
+            chatHistory = raw ? JSON.parse(raw) || [] : [];
+        } catch (e) {
+            console.error('Erreur chargement historique chatbot:', e);
+            chatHistory = [];
+        }
+        renderChatHistory();
+    }
+
     function formatFCFA(amount) {
         const formatter = new Intl.NumberFormat('fr-FR', {
             minimumFractionDigits: 0,
@@ -1268,7 +1360,14 @@
         const password = passwordInput.value;
 
         if (!email || !password) {
-            alert('Veuillez remplir tous les champs');
+            showErrorAlert('Champs requis', 'Veuillez renseigner votre e-mail et votre mot de passe.');
+            return;
+        }
+
+        // Validation simple d'e-mail côté client
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            showErrorAlert('E-mail invalide', "Veuillez saisir une adresse e-mail valide.");
             return;
         }
 
@@ -1284,14 +1383,14 @@
             const data = await response.json();
 
             if (!response.ok) {
-                alert(data.error || 'Erreur de connexion');
+                showErrorAlert('Connexion échouée', data.error || 'Erreur de connexion.');
                 return;
             }
 
             currentUser = data.user;
             document.getElementById('loginPage').style.display = 'none';
             document.getElementById('clientInterface').classList.add('active');
-            
+            document.getElementById('chatbotContainer').style.display = 'block';
             updateClientUI();
             showClientPage('clientDashboard');
             setTimeout(() => { 
@@ -1300,7 +1399,7 @@
             }, 300);
         } catch (error) {
             console.error('Login error:', error);
-            alert('Erreur de connexion. Veuillez réessayer.');
+            showErrorAlert('Erreur', 'Erreur de connexion. Veuillez réessayer.');
         }
     }
 
@@ -1313,7 +1412,13 @@
         const password = passwordInput.value;
 
         if (!email || !password) {
-            alert('Veuillez remplir tous les champs');
+            showErrorAlert('Champs requis', 'Veuillez renseigner votre e-mail et votre mot de passe.');
+            return;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            showErrorAlert('E-mail invalide', "Veuillez saisir une adresse e-mail valide.");
             return;
         }
 
@@ -1329,7 +1434,7 @@
             const data = await response.json();
 
             if (!response.ok) {
-                alert(data.error || 'Erreur de connexion');
+                showErrorAlert('Connexion échouée', data.error || 'Erreur de connexion.');
                 return;
             }
 
@@ -1343,31 +1448,46 @@
             await loadPendingRequests();
         } catch (error) {
             console.error('Login error:', error);
-            alert('Erreur de connexion. Veuillez réessayer.');
+            showErrorAlert('Erreur', 'Erreur de connexion. Veuillez réessayer.');
         }
     }
     
     async function logout() {
-        if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
-            try {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            } catch (error) {
-                console.error('Logout error:', error);
-            }
-            
-            currentUser = null;
-            currentClient = null;
-            document.getElementById('adminInterface').classList.remove('active');
-            document.getElementById('clientInterface').classList.remove('active');
-            document.getElementById('loginPage').style.display = 'flex';
-            document.getElementById('chatbotContainer').style.display = 'none';
-            showLoginForm('client');
-            Object.values(chartInstances).forEach(chart => { if (chart) chart.destroy(); });
-            chartInstances = {};
+        const confirmed = await showConfirmAlert(
+            'Déconnexion',
+            'Êtes-vous sûr de vouloir vous déconnecter ?',
+            'Se déconnecter',
+            'Annuler'
+        );
+        if (!confirmed) {
+            return;
         }
+
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+        } catch (error) {
+            console.error('Logout error:', error);
+        }
+        
+        currentUser = null;
+        currentClient = null;
+        document.getElementById('adminInterface').classList.remove('active');
+        document.getElementById('clientInterface').classList.remove('active');
+        document.getElementById('loginPage').style.display = 'flex';
+        document.getElementById('chatbotContainer').style.display = 'none';
+        // Réinitialiser l'historique du chatbot à la déconnexion
+        chatHistory = [];
+        try {
+            localStorage.removeItem('finailyChatHistory');
+        } catch (e) {
+            console.error('Erreur nettoyage historique chatbot:', e);
+        }
+        showLoginForm('client');
+        Object.values(chartInstances).forEach(chart => { if (chart) chart.destroy(); });
+        chartInstances = {};
     }
 
     // ========== FONCTIONS ADMIN ==========
@@ -1400,7 +1520,10 @@
         
         if (pageId === 'dashboard' || pageId === 'creditPrediction' || pageId === 'clientProfile') {
             if (!currentClient) {
-                alert("Veuillez d'abord sélectionner un client dans la 'Liste Clients'.");
+                showInfoAlert(
+                    'Client non sélectionné',
+                    "Veuillez d'abord sélectionner un client dans la 'Liste Clients'."
+                );
                 showPage('clientsList');
                 return;
             }
@@ -1701,7 +1824,20 @@
         const purpose = document.getElementById('loanPurpose').value;
 
         if (!amount || !duration || !purpose) {
-            alert("Veuillez remplir tous les champs du formulaire.");
+            showErrorAlert('Formulaire incomplet', 'Veuillez remplir tous les champs du formulaire de crédit.');
+            return;
+        }
+
+        const numericAmount = parseFloat(amount);
+        const numericDuration = parseInt(duration, 10);
+
+        if (isNaN(numericAmount) || numericAmount <= 0) {
+            showErrorAlert('Montant invalide', 'Le montant du crédit doit être un nombre positif.');
+            return;
+        }
+
+        if (isNaN(numericDuration) || numericDuration <= 0) {
+            showErrorAlert('Durée invalide', 'La durée du crédit doit être un nombre de mois positif.');
             return;
         }
 
@@ -1712,8 +1848,8 @@
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    amount: parseFloat(amount),
-                    duration: parseInt(duration),
+                    amount: numericAmount,
+                    duration: numericDuration,
                     purpose: purpose
                 })
             });
@@ -1721,14 +1857,14 @@
             const data = await response.json();
 
             if (!response.ok) {
-                alert(data.error || 'Erreur lors de la soumission de la demande');
+                showErrorAlert('Soumission échouée', data.error || 'Erreur lors de la soumission de la demande.');
                 return;
             }
 
             // Store for AI chat context
             creditRequestData = {
-                amount: parseFloat(amount),
-                duration: parseInt(duration),
+                amount: numericAmount,
+                duration: numericDuration,
                 purpose: purpose
             };
 
@@ -1738,19 +1874,22 @@
                 clientId: currentUser.id,
                 clientName: `${currentUser.firstName} ${currentUser.lastName}`,
                 date: new Date().toLocaleDateString('fr-FR'),
-                amount: parseFloat(amount),
-                duration: parseInt(duration),
+                amount: numericAmount,
+                duration: numericDuration,
                 purpose: purpose
             });
 
-            alert(`✅ Demande soumise !\n\nVotre demande de ${formatFCFA(parseFloat(amount))} a été transmise à notre équipe d'analyse crédit. Un administrateur l'examinera bientôt.`);
+            showSuccessAlert(
+                'Demande soumise',
+                `Votre demande de ${formatFCFA(numericAmount)} a été transmise à notre équipe d'analyse crédit. Un administrateur l'examinera bientôt.`
+            );
             
             // Vider le formulaire et rediriger vers le dashboard
             document.getElementById('creditRequestForm').reset();
             showClientPage('clientDashboard');
         } catch (error) {
             console.error('Error submitting credit request:', error);
-            alert('Erreur lors de la soumission. Veuillez réessayer.');
+            showErrorAlert('Erreur', 'Erreur lors de la soumission. Veuillez réessayer.');
         }
     }
 
@@ -2017,7 +2156,10 @@
         
         const isClientInterface = document.getElementById('clientInterface').classList.contains('active');
         if (!isClientInterface) {
-            alert("L'assistant IA n'est disponible que dans l'Espace Client.");
+            showInfoAlert(
+                "Assistant indisponible",
+                "L'assistant IA n'est disponible que dans l'Espace Client."
+            );
             return;
         }
 
@@ -2041,6 +2183,10 @@
         userDiv.className = 'message-user';
         userDiv.innerHTML = `<small><strong>Vous:</strong> ${userMessage}</small>`;
         messages.appendChild(userDiv);
+
+        // Mettre à jour l'historique (utilisateur)
+        chatHistory.push({ type: 'user', text: userMessage });
+        saveChatHistory();
 
         input.value = '';
         messages.scrollTop = messages.scrollHeight;
@@ -2078,14 +2224,23 @@
             botMessage.className = 'message-bot';
             botMessage.innerHTML = `<small><strong>Assistant GC:</strong> ${data.response}</small>`;
             messages.appendChild(botMessage);
+
+            // Mettre à jour l'historique (bot)
+            chatHistory.push({ type: 'bot', text: data.response });
+            saveChatHistory();
             messages.scrollTop = messages.scrollHeight;
         } catch (error) {
             console.error('Chat error:', error);
             loadingDiv.remove();
             const errorMessage = document.createElement('div');
             errorMessage.className = 'message-bot';
-            errorMessage.innerHTML = `<small><strong>Assistant GC:</strong> Désolé, une erreur s'est produite. Veuillez réessayer.</small>`;
+            const errorText = "Désolé, une erreur s'est produite. Veuillez réessayer.";
+            errorMessage.innerHTML = `<small><strong>Assistant GC:</strong> ${errorText}</small>`;
             messages.appendChild(errorMessage);
+
+            // Enregistrer le message d'erreur dans l'historique
+            chatHistory.push({ type: 'bot', text: errorText });
+            saveChatHistory();
             messages.scrollTop = messages.scrollHeight;
         }
     }

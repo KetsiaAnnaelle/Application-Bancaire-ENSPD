@@ -111,3 +111,5 @@ When logged in as admin:
 - If you change models, re-run `python tables__projet.py` to reset the schema and seed data.
 - The sample data mixes positive and negative transaction amounts; the backend interprets positive as inflows and negative as outflows for analytics.
 
+
+
