@@ -26,7 +26,7 @@ This drops and recreates the tables, then inserts:
 - Login credentials
 - Sample transactions (for analytics and credit analysis)
 
-3. **Start the project (backend + frontend together):**
+3. **Start the project (backend + frontend ):**
 
 ```bash
 python app.py
